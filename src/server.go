@@ -20,6 +20,7 @@ type Server struct {
 	peerIds  []int
 
 	cm       *ConsensusModule
+	storage  Storage
 	rpcProxy *RPCProxy
 
 	rpcServer *rpc.Server
@@ -34,11 +35,12 @@ type Server struct {
 }
 
 func NewServer(
-	serverId int, peerIds []int, ready <-chan interface{}, commitChan chan<- CommitEntry) *Server {
+	serverId int, peerIds []int, storage Storage, ready <-chan interface{}, commitChan chan<- CommitEntry) *Server {
 	s := new(Server)
 	s.serverId = serverId
 	s.peerIds = peerIds
 	s.peerClients = make(map[int]*rpc.Client)
+	s.storage = storage
 	s.ready = ready
 	s.commitChan = commitChan
 	s.quit = make(chan interface{})
@@ -47,7 +49,7 @@ func NewServer(
 
 func (s *Server) Serve() {
 	s.mu.Lock()
-	s.cm = NewConsensusModule(s.serverId, s.peerIds, s, s.ready, s.commitChan)
+	s.cm = NewConsensusModule(s.serverId, s.peerIds, s, s.storage, s.ready, s.commitChan)
 
 	// Create RPC server and register RPCProxy that forwards methods to cm
 	s.rpcServer = rpc.NewServer()
