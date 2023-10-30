@@ -487,7 +487,7 @@ func (cm *ConsensusModule) startLeader() {
 		cm.nextIndex[peerId] = len(cm.log)
 		cm.matchIndex[peerId] = -1
 	}
-	cm.dlog("becomes Leader; term=%d, nextIndex=%v,matchIndex=%; log=%v",
+	cm.dlog("becomes Leader; term=%d, nextIndex=%v, matchIndex=%v; log=%v",
 		cm.currentTerm, cm.nextIndex, cm.matchIndex, cm.log)
 
 	// Distribute AE RPCs
