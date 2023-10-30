@@ -1,6 +1,7 @@
 # Raft Algorithm
 
 This is an implementation of the Raft Algorithm developed by Diego Ongaro and John Ousterhout. I wrote this under the guidance of Eli Bendersky's tutorial and the original paper by Ongaro and Ousterhout:
+
 https://eli.thegreenplace.net/2020/implementing-raft-part-0-introduction/
 
 https://raft.github.io/raft.pdf
