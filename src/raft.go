@@ -25,6 +25,21 @@ const (
 	Dead
 )
 
+func (s CMState) String() string {
+	switch s {
+	case Follower:
+		return "Follower"
+	case Candidate:
+		return "Candidate"
+	case Leader:
+		return "Leader"
+	case Dead:
+		return "Dead"
+	default:
+		panic("unreachable")
+	}
+}
+
 // Single node of raft consensus
 type ConsensusModule struct {
 	mu      sync.Mutex // Protects concurrent access to a CM
@@ -40,6 +55,43 @@ type ConsensusModule struct {
 	// Volatile state on all servers
 	state              CMState
 	electionResetEvent time.Time
+}
+
+// Initialize CM,, use ready channel to signal that all peers connected --> start state machine
+func NewConsensusModule(
+	id int, peerIds []int, server *Server, ready <-chan interface{}) *ConsensusModule {
+	cm := new(ConsensusModule)
+	cm.id = id
+	cm.peerIds = peerIds
+	cm.server = server
+	cm.state = Follower
+	cm.votedFor = -1
+
+	go func() {
+		// Inactive until ready, then begins election countdown
+		<-ready
+		cm.mu.Lock()
+		cm.electionResetEvent = time.Now()
+		cm.mu.Unlock()
+		cm.runElectionTimer()
+	}()
+
+	return cm
+}
+
+// Report CM state
+func (cm *ConsensusModule) Report() (id int, term int, isLeader bool) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.id, cm.currentTerm, cm.state == Leader
+}
+
+// Stop CM and clean up state
+func (cm *ConsensusModule) Stop() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	cm.state = Dead
+	cm.dlog("becomes Dead")
 }
 
 // Log debugging message if DebugCM > 0
@@ -132,6 +184,7 @@ func (cm *ConsensusModule) AppendEntries(args AppendEntriesArgs, reply *AppendEn
 	return nil
 }
 
+// Set election timeout duration
 func (cm *ConsensusModule) electionTimeout() time.Duration {
 	// RAFT_FORCE_MORE_REELECTION set --> stress test by frequently generating a hard-
 	// coded number to create collisions between different servers & force reelections
