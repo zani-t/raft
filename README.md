@@ -19,7 +19,7 @@ http://thesecretlivesofdata.com/raft/
 
 **Implementation**
 
-Raft is normally incorporated into a distributed computing services such as a group of key-value store--in contrast the code in this repository contains enough to send a series of instructions to a simulated cluster of servers, create logs of instructions, and change server states to test different scenarios. Environment variables can also be set to perform some simulated network inefficiencies.
+Raft is normally incorporated into a distributed computing services such as a large key-value store--in contrast the code in this repository contains enough to send a series of instructions to a simulated cluster of servers, create logs of instructions, and change server states to test different scenarios. Environment variables can also be set to perform some simulated network inefficiencies.
 Run ./test.sh to test. Source code files include:
 - raft.go: Algorithm specific operations
 - server.go: Simulated server implementation
