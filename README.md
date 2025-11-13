@@ -1,4 +1,4 @@
-# Raft Algorithm
+# Raft Algorithm (2023)
 
 This is an implementation of the Raft Algorithm developed by Diego Ongaro and John Ousterhout. I wrote this under the guidance of Eli Bendersky's tutorial and the original paper by Ongaro and Ousterhout:
 
@@ -25,3 +25,25 @@ Run ./test.sh to test. Source code files include:
 - server.go: Simulated server implementation
 - storage.go: Simulation of persistent storage (of server/consensus module states)
 - Testing implementation written by Bendersky
+
+# Kubernetes Extension (2025)
+
+In an effort to test the functionality of this repository, I retrofitted the necessary code to deploy the its infrastructure on a Minikube cluster. In general you must:
+- Install Minikube
+- Create a client service and main entrypoint
+- Containerize the application and define Kubernetes manifest
+- Expose functions such as read and write via RPC
+- Provision connection to Kubernetes peers and exposed ports
+- Enforce immediate log replication
+
+More details are in `K8S.md`. To run:
+- Execute `minikube start` (with flag `--driver=docker` etc. if needed)
+- Execute `./reset.sh`
+- Open a terminal and port-forward i.e. `kubectl port-forward raft-cluster-2 8082:8080` for each provisioned pod
+
+And run commands such as `go run client.go test-consensus`. The other RPC-exposed commands are:
+- `status <node_addr>` -- Get node status
+- `write <node_addr> key value` -- Write key-value to node
+- `read <node_addr> key` -- Read key from node
+
+There is no support for persistent storage, but changes to the in-memory KV store will be replicated across Kubernetes pods via the Raft algorithm, and can then be viewed from a different pod from which the change was initiated.
