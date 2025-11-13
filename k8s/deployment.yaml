@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: raft-cluster
+spec:
+  serviceName: raft-service
+  replicas: 3
+  selector:
+    matchLabels:
+      app: raft-node
+  template:
+    metadata:
+      labels:
+        app: raft-node
+    spec:
+      containers:
+      - name: raft-node
+        image: raft-server:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: raft-service
+spec:
+  clusterIP: None
+  selector:
+    app: raft-node
+  ports:
+  - port: 8080
+    targetPort: 8080

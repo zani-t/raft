@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"encoding/gob"
 	"fmt"
 	"log"
 	"math/rand"
@@ -9,7 +10,26 @@ import (
 	"os"
 	"sync"
 	"time"
+	"strings"
+	"strconv"
 )
+
+// Command represents a key-value command in the Raft log
+type Command struct {
+	Key   string
+	Value string
+}
+
+func init() {
+	gob.Register(Command{})
+}
+// Helper type to implement net.Addr interface for static addresses
+type staticAddr struct {
+	addr string
+}
+
+func (sa *staticAddr) Network() string { return "tcp" }
+func (sa *staticAddr) String() string  { return sa.addr }
 
 // Wrapper for ConsensusModule and rpc.Server (to expose methods as endpoints)
 // ,, Manages server peers
@@ -37,6 +57,23 @@ type Server struct {
 func NewServer(
 	serverId int, peerIds []int, storage Storage, ready <-chan interface{}, commitChan chan<- CommitEntry) *Server {
 	s := new(Server)
+	
+	// If running in Kubernetes, get pod ordinal from hostname
+	if hostname := os.Getenv("HOSTNAME"); strings.HasPrefix(hostname, "raft-cluster-") {
+		ordinal := strings.TrimPrefix(hostname, "raft-cluster-")
+		if id, err := strconv.Atoi(ordinal); err == nil {
+			serverId = id
+			// Generate peer IDs based on StatefulSet size
+			replicas := 3 // This should be configurable
+			peerIds = make([]int, 0)
+			for i := 0; i < replicas; i++ {
+				if i != serverId {
+					peerIds = append(peerIds, i)
+				}
+			}
+		}
+	}
+	
 	s.serverId = serverId
 	s.peerIds = peerIds
 	s.peerClients = make(map[int]*rpc.Client)
@@ -53,16 +90,43 @@ func (s *Server) Serve() {
 
 	// Create RPC server and register RPCProxy that forwards methods to cm
 	s.rpcServer = rpc.NewServer()
-	s.rpcProxy = &RPCProxy{cm: s.cm}
+	s.rpcProxy = &RPCProxy{
+		cm:      s.cm,
+		storage: s.storage,
+	}
 	s.rpcServer.RegisterName("ConsensusModule", s.rpcProxy)
 
 	var err error
-	s.listener, err = net.Listen("tcp", ":0")
+	// In Kubernetes use fixed port 8080, otherwise let OS assign port
+	port := ":0"
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		port = ":8080"
+	}
+	s.listener, err = net.Listen("tcp", port)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("[%v] listening at %s", s.serverId, s.listener.Addr())
 	s.mu.Unlock()
+
+	// In Kubernetes, automatically connect to peers using StatefulSet DNS names
+	if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+		for _, peerId := range s.peerIds {
+			peerAddr := fmt.Sprintf("raft-cluster-%d.raft-service:8080", peerId)
+			log.Printf("[%v] attempting to connect to peer %d at %s", s.serverId, peerId, peerAddr)
+			go func(id int, addr string) {
+				for {
+					err := s.ConnectToPeer(id, &staticAddr{addr})
+					if err != nil {
+						log.Printf("[%v] failed to connect to peer %d: %v", s.serverId, id, err)
+						time.Sleep(1 * time.Second)
+						continue
+					}
+					break
+				}
+			}(peerId, peerAddr)
+		}
+	}
 
 	s.wg.Add(1)
 	go func() {
@@ -117,7 +181,19 @@ func (s *Server) ConnectToPeer(peerId int, addr net.Addr) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.peerClients[peerId] == nil {
-		client, err := rpc.Dial(addr.Network(), addr.String())
+		var peerAddr string
+		if addr != nil {
+			peerAddr = addr.String()
+		} else if os.Getenv("KUBERNETES_SERVICE_HOST") != "" {
+			// In Kubernetes, use StatefulSet DNS names
+			peerAddr = fmt.Sprintf("raft-cluster-%d.raft-service:8080", peerId)
+		}
+		
+		if peerAddr == "" {
+			return fmt.Errorf("no address available for peer %d", peerId)
+		}
+		
+		client, err := rpc.Dial("tcp", peerAddr)
 		if err != nil {
 			return err
 		}
@@ -152,7 +228,28 @@ func (s *Server) Call(id int, serviceMethod string, args interface{}, reply inte
 
 // Simulation of slight delay and unreliable connections
 type RPCProxy struct {
-	cm *ConsensusModule
+	cm      *ConsensusModule
+	storage Storage
+}
+
+// Report exposes ConsensusModule state
+func (rpp *RPCProxy) Report(args struct{}, reply *struct{ Id, Term int; IsLeader bool }) error {
+	reply.Id, reply.Term, reply.IsLeader = rpp.cm.Report()
+	return nil
+}
+
+// Submit implements client command submission
+func (rpp *RPCProxy) Submit(cmd Command, reply *bool) error {
+	*reply = rpp.cm.Submit(cmd)
+	return nil
+}
+
+// Get implements key-value storage read
+func (rpp *RPCProxy) Get(key string, reply *struct{Value []byte; Found bool}) error {
+	value, found := rpp.cm.storage.Get(key)
+	reply.Value = value
+	reply.Found = found
+	return nil
 }
 
 func (rpp *RPCProxy) RequestVote(args RequestVoteArgs, reply *RequestVoteReply) error {

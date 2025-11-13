@@ -13,7 +13,6 @@ import (
 
 const DebugCM = 1
 
-// Data reported to commit channel
 // Client notified that consensus was reached and can be applied
 type CommitEntry struct {
 	Command interface{}
@@ -126,22 +125,26 @@ func (cm *ConsensusModule) Report() (id int, term int, isLeader bool) {
 	return cm.id, cm.currentTerm, cm.state == Leader
 }
 
-// Client - submit command from to CM,, returns true if leader, otherwise client looks elsewhere
+// Data r// Client - submit command from to CM,, returns true if leader, otherwise client looks elsewhere
 func (cm *ConsensusModule) Submit(command interface{}) bool {
 	cm.mu.Lock()
-	defer cm.mu.Lock()
+	defer cm.mu.Unlock() // Was incorrectly using Lock() instead of Unlock()
 
 	cm.dlog("Submit received by %v: %v", cm.state, command)
 	if cm.state == Leader {
 		cm.log = append(cm.log, LogEntry{Command: command, Term: cm.currentTerm})
 		cm.persistToStorage()
 		cm.dlog("... log=%v", cm.log)
-		cm.mu.Unlock()
-		cm.triggerAEChan <- struct{}{}
+		
+		// Trigger immediate replication of the new entry
+		select {
+		case cm.triggerAEChan <- struct{}{}:
+		default:
+		}
+		
 		return true
 	}
 
-	cm.mu.Unlock()
 	return false
 }
 
